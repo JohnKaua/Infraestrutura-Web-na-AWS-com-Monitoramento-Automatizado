@@ -61,7 +61,7 @@ Se o script estiver funcionando corretamente, após 1 minuto, você receberá al
 
 Alertas do Discord:
 
-![Alt](https://imgur.com/gallery/alert-example-2VYn6Zk)
+![Alt](https://i.imgur.com/v5ub94D.png)
 
 ## Como funciona o script de monitoramento
 

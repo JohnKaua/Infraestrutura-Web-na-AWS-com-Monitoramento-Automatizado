@@ -1,0 +1,4 @@
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/monitor-nginx.sh
+ExecStartPost=/bin/bash -c 'if [ $? -ne 0 ]; then echo "$(date "+%Y-%m-%d %H:%M:%S") [monitor] Reiniciando Nginx" | tee -a /var/log/monitoramento.log; systemctl restart nginx; fi'

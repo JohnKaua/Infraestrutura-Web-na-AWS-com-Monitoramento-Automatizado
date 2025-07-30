@@ -17,32 +17,140 @@ Automação via User Data que provisiona toda a configuração automaticamente n
 
 1. **Criar uma instância EC2**
 
-    - Acesse o [console da AWS](https://console.aws.amazon.com/)
-    - Vá até **EC2 > Instâncias > Iniciar instância**
-    - Escolha a AMI Ubuntu
-    - Tipo de instância: `t2.micro`
-    - Crie um novo KeyPair do tipo RSA e formato .pem, para se conectar à instância
-    - Configure uma **sub-rede pública da VPC padrão** com **IP público habilitado**
-    - Substitua o valor da variável `WEBHOOK_URL` pelo URL do seu Webhook do Discord no script `user-data.sh`. No campo **User Data**, insira o conteúdo do script (automatiza a instalação do Nginx, configuração do HTML, script de monitoramento e ativação do systemd)
-    - Finalize e inicie a instância
+    * Acesse o console da AWS
+    * Vá até **EC2 > Instâncias > Executar instância**
+    * Escolha a AMI Ubuntu
+    * Tipo de instância: `t2.micro`
+    * Crie um novo KeyPair do tipo RSA e formato .pem, para se conectar à instância
+    * Configure uma **sub-rede pública da VPC padrão** com **IP público habilitado**
+    * Substitua o valor da variável `WEBHOOK_URL` pelo URL do seu Webhook do Discord no script `user-data.sh`. No campo **User Data**, insira o conteúdo do script (automatiza a instalação do Nginx, configuração do HTML, script de monitoramento e ativação do systemd)
+    * Finalize e inicie a instância
 
 2. **Liberar a portas HTTP e ssh**
 
-    - No grupo de segurança associado à instância, adicione 2 regras:
-        - Tipo: `HTTP` ; Origem: `0.0.0.0/0 (Anywhere)` 
-        - Tipo: `ssh` ; Origem: `Meu IP`
+    * No grupo de segurança associado à instância, adicione 2 regras:
+        * Tipo: `HTTP` ; Origem: `0.0.0.0/0 (Anywhere)`
+        * Tipo: `ssh` ; Origem: `Meu IP`
 
 ## Como funciona o script de monitoramento
 
 O script `monitor-nginx.sh` realiza as seguintes tarefas:
 
-- Verifica periodicamente (a cada 1 minuto) se o serviço Nginx está ativo
-- Caso detecte falha:
-  - Envia um alerta para um canal do Discord via Webhook
-  - Reinicia automaticamente o serviço Nginx
-- O script é gerenciado por um serviço `systemd`, garantindo que esteja sempre em execução após o boot
+* Verifica periodicamente (a cada 1 minuto) se o serviço Nginx está ativo
+* Caso detecte falha:
+  * Envia um alerta para um canal do Discord via Webhook
+  * Reinicia automaticamente o serviço Nginx
+* O script é gerenciado por um serviço systemd, garantindo que esteja sempre em execução após o boot
 
 > O webhook é configurado diretamente no script. Basta substituir o valor da variável `WEBHOOK_URL`.
 
 Veja a explicação detalhada do funcionamento:
 
+Define, respectivamente, a página a ser monitorada, o caminho do arquivo de log e a URL do Webhook:
+
+~~~bash
+URL="http://localhost"
+LOG="/var/log/monitoramento.log"
+WEBHOOK_URL="COLE_AQUI_O_SEU_WEBHOOK"
+~~~
+
+---
+
+Define a função `log_message` que registra mensagens com data e hora no log. Usa `tee -a` para adicionar ao arquivo. `> /dev/null` evita que o tee imprima no terminal.
+
+~~~bash
+log_message() {
+  TIMESTAMP=$(date "+%Y-%m-%d %H:%M:%S")
+  echo "[${TIMESTAMP}] $1" | sudo tee -a "$LOG" > /dev/null
+}
+~~~
+
+---
+
+Executa uma requisição curl silenciosa `-s` e sem saída de corpo `-o /dev/null`. A opção `-w "%{http_code}"` retorna apenas o código HTTP da resposta. A saída é armazenada na variável `HTTP_CODE`.
+
+~~~bash
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$URL")
+~~~
+
+---
+
+Verifica se o código HTTP é diferente de 200, se for, entra no bloco de recuperação do servidor.
+
+~~~bash
+if [ "$HTTP_CODE" -ne 200 ]; then
+~~~
+
+---
+
+Registra no log que osite está fora do ar.
+
+~~~bash
+log_message "Site fora do ar. Código HTTP: $HTTP_CODE"
+~~~
+
+---
+
+Envia um alerta via Discord alertando a falha do servidor.
+
+~~~bash
+curl -H "Content-Type: application/json" \
+     -X POST \
+     -d "{\"content\": \"⚠️ O servidor caiu (HTTP $HTTP_CODE). Reiniciando o Nginx...\"}" \
+     "$WEBHOOK_URL"
+~~~
+
+---
+
+Reinicia o servidor e aguarda 2 segundos antes de fazer outra verificação.
+
+~~~bash
+sudo systemctl restart nginx
+
+sleep 2
+~~~
+
+---
+
+Verifica se o nginx está ativo e rodando corretamente.
+
+~~~bash
+if systemctl is-active --quiet nginx; then
+~~~
+
+---
+
+Se estiver tudo bem, envia um alerta confirmando a recuperação do servidor.
+
+~~~bash
+curl -H "Content-Type: application/json" \
+     -X POST \
+     -d '{"content": "✅ O servidor Nginx foi reiniciado com sucesso."}' \
+     "$WEBHOOK_URL"
+exit 0
+~~~
+
+---
+
+Se o nginx ainda estiver inativo, envia o alerta de erro e finalizao script com código de erro.
+
+~~~bash
+else
+  curl -H "Content-Type: application/json" \
+       -X POST \
+       -d '{"content": "❌ FALHA ao reiniciar o servidor Nginx! Verifique manualmente."}' \
+       "$WEBHOOK_URL"
+  exit 1
+fi
+~~~
+
+---
+
+Se o código HTTP for 200, registra no log o funcionamento do servidor.
+
+~~~bash
+else
+  log_message "Site está no ar. Código HTTP: $HTTP_CODE"
+  exit 0
+fi
+~~~

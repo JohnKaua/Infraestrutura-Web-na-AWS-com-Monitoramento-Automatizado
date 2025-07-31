@@ -63,7 +63,13 @@ Alertas do Discord:
 
 ![Alt](https://i.imgur.com/v5ub94D.png)
 
-## Como funciona o script de monitoramento
+Verifique, também, o arquivo de log.
+
+![Alt](https://i.imgur.com/mpUnHQi.png)
+
+## Como funcionam os scripts
+
+### Script de monitoramento
 
 O script `monitor-nginx.sh` realiza as seguintes tarefas:
 
@@ -75,113 +81,13 @@ O script `monitor-nginx.sh` realiza as seguintes tarefas:
 
 > O webhook é configurado diretamente no script. Basta substituir o valor da variável `WEBHOOK_URL`.
 
-Veja a explicação detalhada do funcionamento:
+### Script User Data
 
-Define, respectivamente, a página a ser monitorada, o caminho do arquivo de log e a URL do Webhook:
+O script user-data realiza as seguintes tarefas:
 
-~~~bash
-URL="http://localhost"
-LOG="/var/log/monitoramento.log"
-WEBHOOK_URL="COLE_AQUI_O_SEU_WEBHOOK"
-~~~
-
----
-
-Define a função `log_message` que registra mensagens com data e hora no log. Usa `tee -a` para adicionar ao arquivo. `> /dev/null` evita que o tee imprima no terminal.
-
-~~~bash
-log_message() {
-  TIMESTAMP=$(date "+%Y-%m-%d %H:%M:%S")
-  echo "[${TIMESTAMP}] $1" | sudo tee -a "$LOG" > /dev/null
-}
-~~~
-
----
-
-Executa uma requisição curl silenciosa `-s` e sem saída de corpo `-o /dev/null`. A opção `-w "%{http_code}"` retorna apenas o código HTTP da resposta. A saída é armazenada na variável `HTTP_CODE`.
-
-~~~bash
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$URL")
-~~~
-
----
-
-Verifica se o código HTTP é diferente de 200, se for, entra no bloco de recuperação do servidor.
-
-~~~bash
-if [ "$HTTP_CODE" -ne 200 ]; then
-~~~
-
----
-
-Registra no log que osite está fora do ar.
-
-~~~bash
-log_message "Site fora do ar. Código HTTP: $HTTP_CODE"
-~~~
-
----
-
-Envia um alerta via Discord alertando a falha do servidor.
-
-~~~bash
-curl -H "Content-Type: application/json" \
-     -X POST \
-     -d "{\"content\": \"⚠️ O servidor caiu (HTTP $HTTP_CODE). Reiniciando o Nginx...\"}" \
-     "$WEBHOOK_URL"
-~~~
-
----
-
-Reinicia o servidor e aguarda 2 segundos antes de fazer outra verificação.
-
-~~~bash
-sudo systemctl restart nginx
-
-sleep 2
-~~~
-
----
-
-Verifica se o nginx está ativo e rodando corretamente.
-
-~~~bash
-if systemctl is-active --quiet nginx; then
-~~~
-
----
-
-Se estiver tudo bem, envia um alerta confirmando a recuperação do servidor.
-
-~~~bash
-curl -H "Content-Type: application/json" \
-     -X POST \
-     -d '{"content": "✅ O servidor Nginx foi reiniciado com sucesso."}' \
-     "$WEBHOOK_URL"
-exit 0
-~~~
-
----
-
-Se o nginx ainda estiver inativo, envia o alerta de erro e finalizao script com código de erro.
-
-~~~bash
-else
-  curl -H "Content-Type: application/json" \
-       -X POST \
-       -d '{"content": "❌ FALHA ao reiniciar o servidor Nginx! Verifique manualmente."}' \
-       "$WEBHOOK_URL"
-  exit 1
-fi
-~~~
-
----
-
-Se o código HTTP for 200, registra no log o funcionamento do servidor.
-
-~~~bash
-else
-  log_message "Site está no ar. Código HTTP: $HTTP_CODE"
-  exit 0
-fi
-~~~
+* Atualiza e instala pacotes necessários e garante que o Nginx será iniciado automaticamente e já esteja rodando.
+* Define o conteúdo da página servida pelo Nginx.
+* Cria o script de monitoramento e o torna executável.
+* Cria um serviço que executa o script de monitoramento.
+* Cria um timer que executa o serviço de monitoramento.
+* Recarrega os serviços e timers do `systemd` e ativa imediatamente o timer criado, garantindo que o monitoramento comece a rodar automaticamente.

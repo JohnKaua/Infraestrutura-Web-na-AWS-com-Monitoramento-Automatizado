@@ -1,0 +1,10 @@
+[Unit]
+Description=Verifica o status do Nginx periodicamente
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+Unit=monitor-nginx.service
+
+[Install]
+WantedBy=timers.target
